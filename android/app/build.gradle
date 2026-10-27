@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ru.v31.pult'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'ru.v31.pult'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Интерфейс пульта общий для Android и iPad — лежит в папке web/ в корне проекта.
+    sourceSets {
+        main {
+            assets.srcDirs = ['../../web']
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
