@@ -62,7 +62,7 @@
   };
   Object.assign(V.settings, store.get('settings', {}));
   V.Link.gapMs = V.settings.gapMs || 15;
-  const saveSettings = () => store.set('settings', { deviceId: V.settings.deviceId, signed: V.settings.signed, engineering: V.settings.engineering, gapMs: V.Link.gapMs, globalCh: V.settings.globalCh || 10 });
+  const saveSettings = () => store.set('settings', { deviceId: V.settings.deviceId, signed: V.settings.signed, engineering: V.settings.engineering, gapMs: V.Link.gapMs, globalCh: V.settings.globalCh || 10, auxAs: V.settings.auxAs || 'aux' });
 
   // ---------- привязки контролов к памяти модуля ----------
   let binds = [];
@@ -99,7 +99,7 @@
   function isOnOff(f) { return f && f.t === 'enum' && f.items.length === 2 && f.items[0] === 'OFF' && f.items[1] === 'ON'; }
   const TR = window.V31I18N;
   const trn = (s) => TR.name(s);
-  const trv = (s) => TR.value(s);
+  const trv = (s, ctx) => TR.value(s, ctx);
 
   /**
    * Ползунок, который двигается только за ручку.
@@ -184,6 +184,25 @@
     setTimeout(() => { inp.focus(); inp.select(); }, 30);
   }
 
+  /** Окно ввода текста. def — значение для кнопки «Как было». */
+  function askText(title, cur, maxLen, onOk, def) {
+    const inp = h('input', { type: 'text', value: cur, maxlength: maxLen, autocomplete: 'off', 'aria-label': title });
+    let ov;
+    const close = () => ov.remove();
+    const ok = () => { onOk(inp.value); close(); };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); if (e.key === 'Escape') close(); });
+    ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
+      h('div', { class: 'dialog small-dialog', role: 'dialog', 'aria-label': title },
+        h('h2', null, title),
+        h('p', { class: 'muted' }, 'Название хранится только в планшете, на модуль не передаётся.'),
+        inp,
+        h('div', { class: 'btns', style: 'margin-top:14px' }, h('button', { class: 'btn primary', onclick: ok }, 'Готово'),
+          def ? h('button', { class: 'btn', onclick: () => { onOk(''); close(); } }, 'Как было: ' + def) : null,
+          h('button', { class: 'btn', onclick: close }, 'Отмена'))));
+    document.body.append(ov);
+    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  }
+
   /** Перевод «сырое значение ↔ число на экране» для параметров карты. null — ввод числом не нужен. */
   function convOf(p) {
     const f = p.fmt;
@@ -224,7 +243,7 @@
     };
     const lo = p.min === null ? 0 : p.min;
     const hi = p.max === null ? null : p.max;
-    const fmt = (v) => trv(V.format(p, v));
+    const fmt = (v) => trv(V.format(p, v), p.name);
     if (f && f.t === 'enum' && isOnOff(f)) {
       control = h('button', { class: 'toggle', 'aria-label': trn(p.name), role: 'switch' });
       control.addEventListener('click', () => {
@@ -238,11 +257,11 @@
       set = s.set;
     } else if (f && f.t === 'enum' && f.items.length <= 4 && f.items.map(trv).join('').length <= 32 && !opts.select) {
       control = h('div', { class: 'seg', role: 'group' });
-      f.items.forEach((it, i) => control.append(h('button', { onclick: () => write(lo + i) }, trv(it))));
+      f.items.forEach((it, i) => control.append(h('button', { onclick: () => write(lo + i) }, trv(it, p.name))));
       set = (v) => [...control.children].forEach((b, i) => b.classList.toggle('on', i === v - lo));
     } else if (f && f.t === 'enum') {
       control = h('select', { 'aria-label': trn(p.name) });
-      f.items.forEach((it, i) => control.append(h('option', { value: lo + i }, trv(it))));
+      f.items.forEach((it, i) => control.append(h('option', { value: lo + i }, trv(it, p.name))));
       control.addEventListener('change', () => write(+control.value));
       set = (v) => { control.value = v; };
     } else if (hi === null || hi - lo > 20000) {
@@ -300,14 +319,14 @@
       const bases = [base, ...((S.hr && opts.link) || [])];
       for (const b of bases) V.setValue(type, b, p, v);
     };
-    const fmt = (v) => trv(V.hintFormat(spec, v));
+    const fmt = (v) => trv(V.hintFormat(spec, v), name);
     let control, set;
     if (spec && spec.kind === 'enum' && spec.items.length === 2 && spec.items[0] === 'OFF' && spec.items[1] === 'ON') {
       control = h('button', { class: 'toggle', role: 'switch', 'aria-label': name, onclick: () => write(val(type, base, p) ? 0 : 1) });
       set = (v) => control.classList.toggle('on', !!v);
     } else if (spec && spec.kind === 'enum') {
       control = h('select', { 'aria-label': name });
-      spec.items.forEach((it, i) => control.append(h('option', { value: i }, trv(it))));
+      spec.items.forEach((it, i) => control.append(h('option', { value: i }, trv(it, name))));
       control.addEventListener('change', () => write(+control.value));
       set = (v) => {
         if (v < 0 || v >= spec.items.length) {
@@ -384,7 +403,9 @@
   }
 
   /** Все параметры блока, сгруппированные по смыслу. skip — регулярное выражение имён, которые не показывать. */
-  const GROUPS = [/^Pre Transient/, /^Pre EQ/, /^Pre Comp/, /^Post Comp/, /^Post EQ/, /^Filter \d-A/, /^Filter \d-B/, /^Strainer Lever/, /^Bus-[A-D]/, /^Pad EQ/, /^Layer EQ/, /^Transient/, /^Velocity/, /^Side /, /^OutEQ/, /^HI-HAT/, /XTalk Cancel$/];
+  // [регулярное выражение, подпись группы] или регулярное выражение (подпись — совпавший текст)
+  const GROUPS = [/^Pre Transient/, /^Pre EQ/, /^Pre Comp/, /^Post Comp/, /^Post EQ/, /^Filter \d-A/, /^Filter \d-B/,
+    [/^Strainer Lever .* Control$/, 'Рычаг страйнера включает/выключает эффекты'], /^Pad EQ/, /^Layer EQ/, /^Transient/, /^Velocity/, /^Side /, /^OutEQ/, /^HI-HAT/, /XTalk Cancel$/];
   const GROUP_RU = { 'Pre Transient': 'Транзиент на входе', 'Pre EQ': 'EQ на входе', 'Pre Comp': 'Компрессор на входе', 'Post Comp': 'Компрессор на выходе', 'Post EQ': 'EQ на выходе', 'Filter 1-A': 'Фильтры A', 'Filter 1-B': 'Фильтры B', 'Side ': 'Side (Mid/Side)' };
   function blockEditor(type, base, opts) {
     opts = opts || {};
@@ -394,15 +415,34 @@
       if (/reserved/i.test(p.name) || !p.name) continue;
       if (opts.skip && opts.skip.test(p.name)) continue;
       if (opts.only && !opts.only.test(p.name)) continue;
+      if (hiddenByName(p.name)) continue;
       if (/ Name \d+$|Name \d+$/.test(p.name)) continue;
       if (/Parameter \d+$/.test(p.name)) continue;
-      const g = GROUPS.find((re) => re.test(p.name));
-      const gname = g ? (p.name.match(g) || [''])[0] : null;
+      const g = GROUPS.find((re) => (Array.isArray(re) ? re[0] : re).test(p.name));
+      const gname = !g ? null : Array.isArray(g) ? g[1] : (p.name.match(g) || [''])[0];
       if (gname !== lastGroup) {
         lastGroup = gname;
         if (gname) box.append(h('div', { class: 'grp' }, GROUP_RU[gname] || gname.replace(/^\/|\/$/g, '')));
       }
       box.append(row(type, base, p, { link: opts.link && opts.link(p) }));
+    }
+    return box;
+  }
+
+  /**
+   * Явный список строк: 'текст' — заголовок группы, ['Имя', {опции}] или 'Имя параметра'.
+   * Заголовок начинается с '!' — это пояснение, а не группа.
+   */
+  function rowsList(type, base, list, common) {
+    const box = h('div');
+    for (const it of list) {
+      if (typeof it === 'string' && !BLOCKS[type].byName[it]) {
+        box.append(it[0] === '!' ? h('p', { class: 'muted small', style: 'margin:4px 0' }, it.slice(1)) : h('div', { class: 'grp' }, it));
+        continue;
+      }
+      const [n, o] = Array.isArray(it) ? it : [it, {}];
+      if (hiddenByName(n)) continue;
+      box.append(row(type, base, n, Object.assign({}, common || {}, o)));
     }
     return box;
   }
@@ -850,12 +890,99 @@
   // =====================================================================
   // Пэды
   // =====================================================================
-  const PAD_LAYOUT = [8, 3, 4, 9, 10, 7, 2, 5, 6, 11, 12, 13, 14, 1];
+  // У V31 одно гнездо AUX сзади. На модуле (TRIGGER → AUX/TOM4) выбирается, звуки какого пэда
+  // оно играет: AUX или TOM4. Отдельного входа Том 4 нет. AUX 2–4 есть только в памяти модуля
+  // (общей с V71/V51). Лишнее показываем только в инженерном режиме.
+  const auxIsTom4 = () => V.settings.auxAs === 'tom4';
+  const isExtraAux = (id) => !V.settings.engineering && (id >= 12 || (id === 6 && !auxIsTom4()) || (id === 11 && auxIsTom4()));
+  /** Параметр относится к скрытому пэду («Tom 4 Master Assign», «Note Aux3 Head»…). */
+  function hiddenByName(n) {
+    if (/Aux ?\/ ?TOM ?4/i.test(n)) return false;
+    let m = n.match(/\bAux ?([234])\b/i);
+    if (m) return isExtraAux(10 + +m[1]);
+    if (/\bTom ?4\b/i.test(n)) return isExtraAux(6);
+    if (/\bAux\b/i.test(n)) return isExtraAux(11);
+    return false;
+  }
+
+  // Свои названия пэдов (хранятся в планшете, на модуль не передаются)
+  S.padNames = store.get('padnames', {});
+  const DEFAULT_PAD_NAMES = { 12: 'AUX 2', 13: 'AUX 3', 14: 'AUX 4' };
+  const padName = (p) => S.padNames[p.id] || DEFAULT_PAD_NAMES[p.id] || p.ru;
+  function renamePad(p) {
+    askText('Название пэда', padName(p), 16, (t) => {
+      t = t.trim();
+      if (t && t !== (DEFAULT_PAD_NAMES[p.id] || p.ru)) S.padNames[p.id] = t; else delete S.padNames[p.id];
+      store.set('padnames', S.padNames);
+      render();
+    }, DEFAULT_PAD_NAMES[p.id] || p.ru);
+  }
+  // Порядок пэдов на карте и в микшере — свой, меняется перетаскиванием (хранится в планшете).
+  const DEFAULT_ORDER = [1, 2, 7, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14];
+  S.padOrder = store.get('padorder', null);
+  S.padWide = store.get('padwide', {});
+  function padLayout() {
+    const order = (S.padOrder || DEFAULT_ORDER).filter((id) => id >= 1 && id <= 14);
+    for (const id of DEFAULT_ORDER) if (!order.includes(id)) order.push(id);
+    return order.filter((id) => !isExtraAux(id));
+  }
+  const UI_PADS = () => padLayout().map((id) => PADS[id - 1]);
   const CYM = new Set([7, 8, 9, 10]);
   const padEls = {};
 
+  /** Перетаскивание пэда на карте (в режиме редактирования). Порядок сохраняется при отпускании. */
+  function makeDraggable(el, map) {
+    let st = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button > 0 || e.target.closest('.ptool')) return;
+      const r = el.getBoundingClientRect();
+      st = { x: e.clientX, y: e.clientY, ox: e.clientX - r.left, oy: e.clientY - r.top, moved: false };
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* нет захвата */ }
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!st) return;
+      const dx = e.clientX - st.x, dy = e.clientY - st.y;
+      if (!st.moved && Math.hypot(dx, dy) < 6) return;
+      st.moved = true;
+      el.classList.add('dragging');
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      // на чьё место попадает палец
+      el.style.pointerEvents = 'none';
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      el.style.pointerEvents = '';
+      const target = under && under.closest('.pad');
+      if (target && target !== el && target.parentNode === map) {
+        const before = el.getBoundingClientRect();
+        const tr = target.getBoundingClientRect();
+        const after = e.clientX > tr.left + tr.width / 2 || e.clientY > tr.bottom - 4;
+        map.insertBefore(el, after ? target.nextSibling : target);
+        // перенос элемента в DOM снимает захват указателя — берём снова
+        try { el.setPointerCapture(e.pointerId); } catch (err) { /* нет захвата */ }
+        const now = el.getBoundingClientRect();
+        // компенсируем сдвиг элемента в сетке, чтобы он оставался под пальцем
+        st.x += now.left - before.left; st.y += now.top - before.top;
+        el.style.transform = `translate(${e.clientX - st.x}px, ${e.clientY - st.y}px)`;
+      }
+    });
+    const end = () => {
+      if (!st) return;
+      const moved = st.moved;
+      st = null;
+      el.classList.remove('dragging');
+      el.style.transform = '';
+      if (!moved) return;
+      const shown = [...map.querySelectorAll('.pad')].map((x) => +x.dataset.id);
+      const hidden = (S.padOrder || DEFAULT_ORDER).filter((id) => !shown.includes(id));
+      S.padOrder = [...shown, ...hidden];
+      store.set('padorder', S.padOrder);
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
   function viewPads(view) {
     const k = S.kit;
+    if (isExtraAux(S.pad)) S.pad = 2;
     const pad = PADS[S.pad - 1];
     const zones = pad.zones;
     if (S.zoneIdx >= zones.length) S.zoneIdx = 0;
@@ -863,12 +990,18 @@
     const sib = (zz) => zones.filter((x) => x !== zz);
 
     // карта пэдов
-    const map = h('div', { class: 'padmap' });
-    for (const id of PAD_LAYOUT) {
+    const map = h('div', { class: 'padmap' + (S.padEdit ? ' editing' : '') });
+    for (const id of padLayout()) {
       const p = PADS[id - 1];
       const instEl = h('span', { class: 'pi' }, '');
-      const b = h('button', { class: 'pad' + (id === S.pad ? ' on' : '') + (CYM.has(id) ? ' cym' : '') + (id === 1 ? ' kick' : ''), onclick: () => { S.pad = id; S.zoneIdx = 0; S.xstick = false; render(); } },
-        h('span', { class: 'pn' }, p.ru), instEl, h('i', { class: 'hit' }));
+      const b = h('button', { class: 'pad' + (id === S.pad && !S.padEdit ? ' on' : '') + (CYM.has(id) ? ' cym' : '') + (S.padWide[id] ? ' wide' : ''), 'data-id': id, onclick: () => { if (S.padEdit) return; S.pad = id; S.zoneIdx = 0; S.xstick = false; render(); } },
+        h('span', { class: 'pn' }, padName(p)), instEl, h('i', { class: 'hit' }));
+      if (S.padEdit) {
+        b.append(h('span', { class: 'pad-tools' },
+          h('span', { class: 'ptool', role: 'button', title: 'Переименовать', onclick: (e) => { e.stopPropagation(); renamePad(p); } }, '✎'),
+          h('span', { class: 'ptool', role: 'button', title: S.padWide[id] ? 'Сделать уже' : 'Сделать шире', onclick: (e) => { e.stopPropagation(); if (S.padWide[id]) delete S.padWide[id]; else S.padWide[id] = 1; store.set('padwide', S.padWide); render(); } }, S.padWide[id] ? '⇥⇤' : '⇤⇥')));
+        makeDraggable(b, map);
+      }
       padEls[id] = b;
       map.append(b);
       const base = ADDR.layer(k, 0, p.zones[0]);
@@ -876,11 +1009,18 @@
       binds.push({ base, off: BLOCKS.KitUnitLayer.byName.Instrument.off, bytes: 8, update: upd });
       upd();
     }
+    view.append(h('div', { class: 'btns padmap-tools' },
+      S.padEdit
+        ? [h('span', { class: 'muted small' }, 'Перетаскивайте пэды, чтобы поменять порядок. ✎ — название, ⇤⇥ — ширина.'),
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'btn', onclick: () => { S.padOrder = null; S.padWide = {}; store.set('padorder', null); store.set('padwide', {}); render(); } }, 'Порядок по умолчанию'),
+          h('button', { class: 'btn primary', onclick: () => { S.padEdit = false; render(); } }, 'Готово')]
+        : [h('span', { class: 'spacer' }), h('button', { class: 'btn', onclick: () => { S.padEdit = true; render(); } }, 'Изменить расположение и названия')]));
     view.append(map);
     // имена инструментов на пэдах подгружаются фоном
     (async () => {
       const token = S.renderId;
-      for (const id of PAD_LAYOUT) {
+      for (const id of padLayout()) {
         try { await need([['KitUnitLayer', ADDR.layer(k, 0, PADS[id - 1].zones[0])]], token); } catch (e) { return; }
       }
     })();
@@ -892,7 +1032,7 @@
     if (pad.xstick) zseg.append(h('button', { class: S.xstick ? 'on' : '', onclick: () => { S.xstick = true; render(); } }, 'Кросс-стик'));
     const hrBtn = hrButton();
     const play = h('button', { class: 'btn', onclick: () => playZone(z) }, '▶ Прослушать');
-    view.append(h('div', { class: 'btns', style: 'margin-bottom:12px' }, h('h1', { class: 'view', style: 'margin:0 8px 0 0' }, pad.ru), zseg, zones.length > 1 ? hrBtn : null, h('span', { class: 'spacer' }), play));
+    view.append(h('div', { class: 'btns', style: 'margin-bottom:12px' }, h('h1', { class: 'view', style: 'margin:0 8px 0 0' }, padName(pad)), zseg, zones.length > 1 ? hrBtn : null, h('span', { class: 'spacer' }), play));
 
     if (S.xstick) {
       const xb = ADDR.xstick(k);
@@ -910,11 +1050,20 @@
     view.append(section('Инструменты', async () => {
       await need([0, 1, 2].map((L) => ['KitUnitLayer', ADDR.layer(k, L, z)]), S.renderId);
       await need([['KitUnitCommon', ADDR.unit(k, z)]], S.renderId);
-      for (let L = 0; L < 3; L++) {
-        const pair = S.zoneIdx === 0 ? sib(z).map((zz) => ({ base: ADDR.layer(k, L, zz), role: ZONES[zz - 1].split(' ').pop() })) : null;
-        layersBox.append(layerCard(ADDR.layer(k, L, z), 'Слой ' + 'ABC'[L], sib(z).map((zz) => ADDR.layer(k, L, zz)), false, pair));
-      }
-      const lm = row('KitUnitCommon', ADDR.unit(k, z), 'Layer Mode', { label: 'Как звучат слои', link: sib(z).map((zz) => ADDR.unit(k, zz)) });
+      const ub0 = ADDR.unit(k, z);
+      const drawLayers = () => {
+        binds = binds.filter((b) => b.layersBox !== layersBox);
+        const before = binds.length;
+        const mode = val('KitUnitCommon', ub0, 'Layer Mode');
+        layersBox.replaceChildren();
+        for (let L = 0; L < 3; L++) {
+          const pair = S.zoneIdx === 0 ? sib(z).map((zz) => ({ base: ADDR.layer(k, L, zz), role: ZONES[zz - 1].split(' ').pop() })) : null;
+          layersBox.append(layerCard(ADDR.layer(k, L, z), layerTitle(L, mode), sib(z).map((zz) => ADDR.layer(k, L, zz)), false, pair, mode));
+        }
+        for (const b of binds.slice(before)) b.layersBox = layersBox;
+      };
+      const lm = layerModeControl(ub0, sib(z).map((zz) => ADDR.unit(k, zz)), pad.id === 7, drawLayers);
+      drawLayers();
       return h('div', null, lm, layersBox);
     }));
 
@@ -922,7 +1071,7 @@
     for (let L = 0; L < 3; L++) {
       const base = ADDR.layer(k, L, z);
       const link = sib(z).map((zz) => ADDR.layer(k, L, zz));
-      view.append(section(`Слой ${'ABC'[L]}: транзиент, EQ, динамика, V-EDIT`, async () => {
+      view.append(section(`Слой ${'ABC'[L]}: транзиент, EQ, V-EDIT`, async () => {
         await need([['KitUnitLayer', base]], S.renderId);
         return layerDetails(base, link, `${k}:${L}:${z}`);
       }, { fold: true, closed: true }));
@@ -938,7 +1087,16 @@
     }));
     view.append(section('Громкость и посылы', async () => {
       await need([['KitUnitCommon', ub]], S.renderId);
-      return blockEditor('KitUnitCommon', ub, { only: /^(Volume|Minimum Volume|Overhead Send|Room Send|Reverb Send|Kit Resonance Send|Mute Group|Position|Pedal Bend|Output Routing|Bus Send Level|Snare Buzz Sens|Buzz Muffling)/, link: () => ulink });
+      return rowsList('KitUnitCommon', ub, [
+        'Volume', 'Minimum Volume',
+        'Посылы в эмбиенс', 'Overhead Send Level', 'Overhead Send Filter Select', 'Room Send Level', 'Reverb Send Level', 'Kit Resonance Send Level',
+        'Mute Group', 'Mute Group Send', 'Mute Group Receive',
+        'Position и Pedal Bend', 'Position Control', 'Position Area', 'Pedal Bend Range',
+        'Дребезг малого (Snare Buzz)', 'Snare Buzz Sens', 'Buzz Muffling',
+        'Шина эффектов — только эта зона',
+        '!Действует, когда в «Панорама и компрессор пэда → Шины и сайдчейн» выбрано HEAD/RIM. При PAD весь пэд идёт в шину по настройке пэда.',
+        ['Output Routing', { label: 'Отправка в шину эффектов (зона)' }], ['Bus Send Level', { label: 'Уровень посыла в шину (зона)' }],
+      ], { link: ulink });
     }, { fold: true }));
     const pb = ADDR.pad(k, S.pad);
     view.append(section('Панорама и компрессор пэда', async () => {
@@ -947,7 +1105,37 @@
     }, { fold: true }));
   }
 
-  function layerCard(base, title, link, xstick, pair) {
+  /** Режим слоёв: MIX / VELOCITY / HI-HAT (HI-HAT — только у хай-хэта). */
+  const LAYER_MODES = [
+    ['MIX', 'Все включённые слои звучат вместе.'],
+    ['VELOCITY', 'Какой слой звучит, зависит от силы удара. Границы (Velocity) задаются в каждом слое ниже.'],
+    ['HI-HAT', 'Слой A — открытый хай-хэт, B — закрытый, C — закрытая педаль. Работает с SYNTH WAVE и user sample.'],
+  ];
+  function layerTitle(L, mode) {
+    if (mode === 2) return 'Слой ' + 'ABC'[L] + ' · ' + ['открытый', 'закрытый', 'педаль'][L];
+    return 'Слой ' + 'ABC'[L];
+  }
+  function layerModeControl(base, link, isHiHat, onChange) {
+    const p = BLOCKS.KitUnitCommon.byName['Layer Mode'];
+    const seg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Режим слоёв' });
+    const note = h('small');
+    const modes = isHiHat ? LAYER_MODES : LAYER_MODES.slice(0, 2);
+    modes.forEach(([lab], i) => seg.append(h('button', { role: 'radio', onclick: () => { for (const b of [base, ...((S.hr && link) || [])]) V.setValue('KitUnitCommon', b, p, i); } }, lab)));
+    let last = null;
+    const update = () => {
+      const v = val('KitUnitCommon', base, p);
+      if (v === null) return;
+      [...seg.children].forEach((b, i) => { b.classList.toggle('on', i === v); b.setAttribute('aria-checked', i === v ? 'true' : 'false'); });
+      note.textContent = (LAYER_MODES[v] || ['', ''])[1];
+      if (last !== null && last !== v) onChange();
+      last = v;
+    };
+    binds.push({ base, off: p.off, bytes: 1, update });
+    update();
+    return h('div', { class: 'row wide layer-mode' }, h('div', { class: 'lbl' }, 'Режим слоёв', note), seg);
+  }
+
+  function layerCard(base, title, link, xstick, pair, mode) {
     const card = h('div', { class: 'layer' });
     const P = BLOCKS.KitUnitLayer.byName;
     const sw = row('KitUnitLayer', base, 'Inst Switch', { label: 'Слой включён', link });
@@ -958,8 +1146,33 @@
       row('KitUnitLayer', base, 'Volume', { link }),
       row('KitUnitLayer', base, 'Inst Pitch', { label: 'Pitch', note: 'в центах', link }),
       xstick ? null : row('KitUnitLayer', base, 'Inst Decay', { label: 'Decay', link }));
+    if (mode === 1) card.append(velocityBox(base, link));
     updOff();
     return card;
+  }
+
+  /** Настройки слоя для режима VELOCITY: FADE — границы и плавность, FIXED — порог. */
+  function velocityBox(base, link) {
+    const box = h('div', { class: 'velo' });
+    const inner = h('div');
+    const P = BLOCKS.KitUnitLayer.byName.Dynamics;
+    let last = null;
+    const draw = () => {
+      const d = val('KitUnitLayer', base, P);
+      if (d === last) return;
+      last = d;
+      binds = binds.filter((b) => b.velo !== inner);
+      const before = binds.length;
+      const rows = d === 1
+        ? ['Velocity Lower', 'Velocity Upper', 'Velocity Fade In Sens', 'Velocity Fade Out Sens'].map((n) => row('KitUnitLayer', base, n, { link, label: { 'Velocity Lower': 'Звучит от', 'Velocity Upper': 'Звучит до', 'Velocity Fade In Sens': 'Fade In', 'Velocity Fade Out Sens': 'Fade Out' }[n] }))
+        : [row('KitUnitLayer', base, 'Threshold', { link, label: 'Звучит от (Threshold)' })];
+      for (const b of binds.slice(before)) b.velo = inner;
+      inner.replaceChildren(...rows);
+    };
+    binds.push({ base, off: P.off, bytes: 1, update: draw });
+    box.append(h('div', { class: 'grp' }, 'Сила удара (Velocity)'), row('KitUnitLayer', base, P, { link, label: 'Dynamics' }), inner);
+    draw();
+    return box;
   }
 
   function layerDetails(base, link, key) {
@@ -970,8 +1183,7 @@
     for (const n of ['Inst Pitch Sweep', 'Dynamic Enhancer']) box.append(row('KitUnitLayer', base, n, { link }));
     box.append(h('div', { class: 'grp' }, 'EQ слоя'), eqEditor(eqLayer(base, link)));
     if (link && link.length) need(link.map((b) => ['KitUnitLayer', b])).catch(() => {});
-    box.append(h('div', { class: 'grp' }, 'Слои по силе удара (Layer Mode = VELOCITY)'));
-    for (const n of ['Velocity Lower', 'Velocity Upper', 'Velocity Fade In Sens', 'Velocity Fade Out Sens', 'Dynamics', 'Threshold']) box.append(row('KitUnitLayer', base, n, { link }));
+
     // V-EDIT
     const bank = val('KitUnitLayer', base, 'Inst Bank');
     const inst = val('KitUnitLayer', base, 'Instrument');
@@ -1007,7 +1219,10 @@
       row('KitPad', pb, 'Pad Comp Output Volume', { label: 'Громкость на выходе' }), params);
     draw();
     box.append(h('div', { class: 'grp' }, 'Шины и сайдчейн'));
-    for (const n of ['Bus Send Head/Rim', 'Output Routing', 'Bus Send Level', 'Pad Side Chain Control', 'Side Chain Control Send Level']) box.append(row('KitPad', pb, n));
+    box.append(rowsList('KitPad', pb, [
+      ['Bus Send Head/Rim', { label: 'В шину идёт', note: 'PAD — весь пэд по настройке ниже; HEAD/RIM — пластик и обод по своим настройкам зон («Громкость и посылы»)' }],
+      ['Output Routing', { label: 'Отправка в шину эффектов (весь пэд)' }], ['Bus Send Level', { label: 'Уровень посыла в шину (весь пэд)' }],
+      'Pad Side Chain Control', 'Side Chain Control Send Level']));
     return box;
   }
 
@@ -1121,7 +1336,7 @@
     let start = null;
     const get = () => val('KitUnitCommon', bases[0], PV);
     const f = makeFader(PV, {
-      label: pad.ru, key: 'pad' + pad.id,
+      label: padName(pad), key: 'pad' + pad.id,
       get,
       onStart: () => { start = bases.map((b) => val('KitUnitCommon', b, PV)); },
       write: (v) => {
@@ -1148,7 +1363,7 @@
     if (part === 'EDGE') return 'Край';
     if (part === 'HEAD') return cym ? 'Тело' : 'Пластик';
     if (part === 'RIM') return cym ? 'Край' : 'Обод';
-    return pad.ru;
+    return padName(pad);
   }
 
   function panSlider(pb) {
@@ -1173,7 +1388,7 @@
     const mix = h('div', { class: 'mixer' });
     view.append(section('Громкость', async () => {
       const list = [['KitCommon', ADDR.kitCommon(k)]];
-      for (const p of PADS) {
+      for (const p of UI_PADS()) {
         for (const z of p.zones) list.push(['KitUnitCommon', ADDR.unit(k, z)]);
         list.push(['KitPad', ADDR.pad(k, p.id)]);
       }
@@ -1182,17 +1397,17 @@
       const [mf, msv] = fader('KitCommon', cb, BLOCKS.KitCommon.byName.Volume, 'Кит');
       const [hf, hsv] = fader('KitCommon', cb, BLOCKS.KitCommon.byName['Closed Pedal Volume'], 'Педаль хай-хэта');
       mix.append(h('div', { class: 'strip master' }, h('div', { class: 'sn' }, 'Кит'), msv, mf));
-      for (const p of PADS) {
+      for (const p of UI_PADS()) {
         const open = S.mixOpen.has(p.id) && p.zones.length > 1;
         const toggle = () => { if (S.mixOpen.has(p.id)) S.mixOpen.delete(p.id); else S.mixOpen.add(p.id); render(); };
-        const nameBtn = h('button', { class: 'sn sn-btn', onclick: toggle, 'aria-expanded': open ? 'true' : 'false', title: p.zones.length > 1 ? 'Показать отдельно пластик и обод' : '' }, p.ru, p.zones.length > 1 ? h('span', { class: 'chev' }, open ? ' ‹' : ' ›') : null);
+        const nameBtn = h('button', { class: 'sn sn-btn', onclick: toggle, 'aria-expanded': open ? 'true' : 'false', title: p.zones.length > 1 ? 'Показать отдельно пластик и обод' : '' }, padName(p), p.zones.length > 1 ? h('span', { class: 'chev' }, open ? ' ‹' : ' ›') : null);
         if (p.zones.length === 1) nameBtn.disabled = true;
         const [f, sv] = padFader(k, p);
         const [pan, pv] = panSlider(ADDR.pad(k, p.id));
         const group = h('div', { class: 'strip-group' + (open ? ' open' : '') }, h('div', { class: 'strip' }, nameBtn, sv, f, pan, pv));
         if (open) {
           for (const z of p.zones) {
-            const [zf, zsv] = fader('KitUnitCommon', ADDR.unit(k, z), BLOCKS.KitUnitCommon.byName.Volume, p.ru + ' ' + zoneName(p, z));
+            const [zf, zsv] = fader('KitUnitCommon', ADDR.unit(k, z), BLOCKS.KitUnitCommon.byName.Volume, padName(p) + ' ' + zoneName(p, z));
             group.append(h('div', { class: 'strip zone' }, h('div', { class: 'sn' }, zoneName(p, z)), zsv, zf));
           }
         }
@@ -1203,14 +1418,14 @@
         'Фейдер двигается только за колпачок. Фейдер пэда меняет пластик и обод вместе, сохраняя разницу между ними. Нажмите на имя пэда, чтобы отрегулировать пластик и обод по отдельности. Двойное касание колпачка — 0 dB.'));
     }));
     view.append(section('Посылы в эмбиенс', async () => {
-      const list = PADS.map((p) => ['KitUnitCommon', ADDR.unit(k, p.zones[0])]);
+      const list = UI_PADS().map((p) => ['KitUnitCommon', ADDR.unit(k, p.zones[0])]);
       await need(list, S.renderId);
       const tbl = h('table', { class: 'tbl' }, h('tr', null, h('th', null, 'Пэд'), h('th', null, 'Overhead'), h('th', null, 'Room'), h('th', null, 'Reverb'), h('th', null, 'Kit Reso')));
-      for (const p of PADS) {
+      for (const p of UI_PADS()) {
         const base = ADDR.unit(k, p.zones[0]);
         const link = p.zones.slice(1).map((z) => ADDR.unit(k, z));
         const cell = (n) => { const r = row('KitUnitCommon', base, n, { label: ' ', link }); r.style.gridTemplateColumns = '0 1fr auto'; return h('td', null, r); };
-        tbl.append(h('tr', null, h('td', null, p.ru), cell('Overhead Send Level'), cell('Room Send Level'), cell('Reverb Send Level'), cell('Kit Resonance Send Level')));
+        tbl.append(h('tr', null, h('td', null, padName(p)), cell('Overhead Send Level'), cell('Room Send Level'), cell('Reverb Send Level'), cell('Kit Resonance Send Level')));
       }
       return h('div', null, h('div', { class: 'btns', style: 'margin:4px 0 8px' }, hrButton()), h('div', { class: 'scrollx' }, tbl));
     }, { fold: true, closed: true }));
@@ -1540,23 +1755,46 @@
       fxSlot(k, (bus - 1) * 2 + 2)));
     view.append(section(`Шина ${'ABCD'[bus - 1]}: уровень и сайдчейн`, async () => {
       await need([['KitBusSetup', bb]], S.renderId);
-      return blockEditor('KitBusSetup', bb);
+      const fxRows = (n) => [`FX${n}: сайдчейн`, [`FX${n} Side Chain Switch`, { label: 'Сайдчейн' }],
+        [`FX${n} Side Chain Pre-Gate Switch`, { label: 'Pre-Gate', note: 'гейт на сигнале управления' }],
+        [`FX${n} Side Chain Pre-Gate Mode`, { label: 'Mode' }], [`FX${n} Side Chain Pre-Gate Threshold`, { label: 'Threshold' }],
+        [`FX${n} Side Chain Pre-Gate Attack`, { label: 'Attack' }], [`FX${n} Side Chain Pre-Gate Hold`, { label: 'Hold' }],
+        [`FX${n} Side Chain Pre-Gate Release`, { label: 'Release' }], [`FX${n} Side Chain Pre-Gate Balance`, { label: 'Balance' }],
+        [`FX${n} Side Chain Pre-Gate Level`, { label: 'Level' }], [`FX${n} Side Chain Pre-Gate Output Gain`, { label: 'Output Gain' }]];
+      return rowsList('KitBusSetup', bb, ['Bus Level',
+        '!Сайдчейн: эффект шины управляется сигналом пэдов, у которых на странице пэда выбрано «Управление сайдчейном» → эта шина и FX.',
+        ...fxRows(1), ...fxRows(2)]);
     }, { fold: true }));
     view.append(section('Маршрутизация шин', async () => {
       const cb = ADDR.kitCommon(k);
       await need([['KitCommon', cb]], S.renderId);
-      return blockEditor('KitCommon', cb, { only: /^(Bus-[A-D] |Room Send Bus|Overhead Send Bus|Reverb Send Bus|Kit Resonance Send Bus|Room Bus Send|Overhead Bus Send|Reverb Bus Send|Kit Resonance Bus Send)/ });
+      return rowsList('KitCommon', cb, [
+        'Шина → следующая шина',
+        '!По умолчанию шина идёт сразу на выход. «A+SEND B» — часть сигнала шины A посылается ещё и в шину B; «INSERT B» — шина A целиком проходит через эффекты шины B.',
+        ['Bus-A Output', { label: 'Шина A →' }], ['Bus-A Send Level', { label: 'Шина A: уровень посыла' }],
+        ['Bus-B Output', { label: 'Шина B →' }], ['Bus-B Send Level', { label: 'Шина B: уровень посыла' }],
+        ['Bus-C Output', { label: 'Шина C →' }], ['Bus-C Send Level', { label: 'Шина C: уровень посыла' }],
+        'Шины → Bus Reverb',
+        ['Bus-A Reverb Send', { label: 'Шина A' }], ['Bus-B Reverb Send', { label: 'Шина B' }], ['Bus-C Reverb Send', { label: 'Шина C' }], ['Bus-D Reverb Send', { label: 'Шина D' }],
+        'Эмбиенс → шины',
+        ['Overhead Send Bus Select', { label: 'Overhead → шина' }], ['Overhead Bus Send Level', { label: 'Overhead: уровень посыла' }],
+        ['Room Send Bus Select', { label: 'Room → шина' }], ['Room Bus Send Level', { label: 'Room: уровень посыла' }],
+        ['Reverb Send Bus Select', { label: 'Reverb → шина' }], ['Reverb Bus Send Level', { label: 'Reverb: уровень посыла' }],
+        ['Kit Resonance Send Bus Select', { label: 'Kit Resonance → шина' }], ['Kit Resonance Bus Send Level', { label: 'Kit Resonance: уровень посыла' }],
+      ]);
     }, { fold: true, closed: true }));
     view.append(section('Какие пэды идут в шины', async () => {
-      await need(PADS.map((p) => ['KitPad', ADDR.pad(k, p.id)]), S.renderId);
-      const tbl = h('table', { class: 'tbl' }, h('tr', null, h('th', null, 'Пэд'), h('th', null, 'Маршрут'), h('th', null, 'Посыл')));
-      for (const p of PADS) {
+      await need(UI_PADS().map((p) => ['KitPad', ADDR.pad(k, p.id)]), S.renderId);
+      const tbl = h('table', { class: 'tbl' }, h('tr', null, h('th', null, 'Пэд'), h('th', null, 'В какую шину'), h('th', null, 'Уровень посыла')));
+      for (const p of UI_PADS()) {
         const pb = ADDR.pad(k, p.id);
         const r1 = row('KitPad', pb, 'Output Routing', { label: ' ' }); r1.style.gridTemplateColumns = '0 1fr 0';
         const r2 = row('KitPad', pb, 'Bus Send Level', { label: ' ' }); r2.style.gridTemplateColumns = '0 1fr auto';
-        tbl.append(h('tr', null, h('td', null, p.ru), h('td', null, r1), h('td', null, r2)));
+        tbl.append(h('tr', null, h('td', null, padName(p)), h('td', null, r1), h('td', null, r2)));
       }
-      return h('div', { class: 'scrollx' }, tbl);
+      return h('div', null, h('p', { class: 'muted small', style: 'margin:4px 0 8px' },
+        'Шины A–D — внутренние линии эффектов модуля, не физические выходы. «Посыл в шину» — пэд звучит как есть и часть сигнала уходит в эффекты шины (как AUX на пульте). «Целиком через шину» — весь звук пэда проходит через эффекты шины (как insert). Всё в итоге приходит на MASTER и наушники. Здесь — настройка пэда целиком; если у пэда выбрано HEAD/RIM, пластик и обод настраиваются отдельно на странице пэда.'),
+        h('div', { class: 'scrollx' }, tbl));
     }, { fold: true, closed: true }));
     view.append(section('Bus Reverb', async () => {
       const rb = ADDR.busReverb(k);
@@ -1634,9 +1872,9 @@
           const t = val('KitRoom', b, 'Type') ? 'SYNTHETIC' : 'REALISTIC';
           params.replaceChildren(h('div', { class: 'grp' }, t === 'REALISTIC' ? 'Помещение (REALISTIC)' : 'Синтетический (SYNTHETIC)'), typedList('KitRoom', b, 'Room Parameter', T.ROOM[t]));
         };
-        const box = h('div', null, row('KitRoom', b, 'Room Switch', { label: 'Включён' }), row('KitRoom', b, 'Type', { label: 'Тип', onSet: () => setTimeout(async () => { await V.load('KitRoom', b, true); draw(); }, 250) }), row('KitRoom', b, 'Level'), params);
+        const box = h('div', null, row('KitRoom', b, 'Room Switch', { label: 'Включён' }), row('KitRoom', b, 'Type', { label: 'Тип', onSet: () => setTimeout(async () => { await V.load('KitRoom', b, true); draw(); }, 250) }), row('KitRoom', b, 'Level'), row('KitRoom', b, 'Output Width'), params);
         draw();
-        box.append(blockEditor('KitRoom', b, { skip: /^(Room Switch|Type|Level|Pre EQ.*|Post EQ.*)$/ }));
+        box.append(blockEditor('KitRoom', b, { skip: /^(Room Switch|Type|Level|Output Width|Pre EQ.*|Post EQ.*)$/ }));
         return box;
       }));
       view.append(section('EQ на входе', async () => { await need([['KitRoom', b]], S.renderId); return eqEditor(eqRoomPre(b)); }, { fold: true, closed: true }));
@@ -1665,11 +1903,23 @@
       return h('div', null,
         textRow('KitCommon', cb, 'Kit Name', 'Имя кита', { onSet: () => setTimeout(updateHeader, 50) }),
         textRow('KitCommon', cb, 'Kit Sub Name', 'Подпись'),
-        blockEditor('KitCommon', cb, { only: /^(Volume|Closed Pedal Volume|HH Open\/Close Balance|Kit Tempo|Kit Tempo Switch|Kit Phrase|Kit Color|Red|Green|Blue|Kit Favorite Switch|Overhead Template|Kit Image|Kit Name Size)$/ }));
+        rowsList('KitCommon', cb, ['Volume', 'Closed Pedal Volume', 'HH Open/Close Balance', 'Kit Favorite Switch',
+          'Темп и фраза', 'Kit Tempo Switch', 'Kit Tempo', 'Kit Phrase',
+          'Ambience', 'Overhead Template',
+          'Экран', 'Kit Image', 'Kit Name Size', 'Kit Color',
+          '!Красный, зелёный и синий действуют, когда цвет — «Свой (RGB)».', 'Red', 'Green', 'Blue']));
     }));
     view.append(section('Малый барабан: кросс-стик, щётки, страйнер, buzz', async () => {
       await need([['KitCommon', cb]], S.renderId);
-      return blockEditor('KitCommon', cb, { only: /^(Analog XStick|Brush Switch|Strainer|Snare Throw|Snare Buzz)/ });
+      return rowsList('KitCommon', cb, ['Analog XStick', 'Brush Switch',
+        'Snare Buzz и Snare Throw', 'Snare Buzz Switch', 'Snare Buzz Volume', 'Snare Throw Sound', 'Snare Throw Volume',
+        'Страйнер (PD-14DSX)', 'Strainer Mode', 'Strainer Lever Function', 'Strainer Knob Function', 'Strainer Switch Function',
+        'Рычаг страйнера включает/выключает эффекты',
+        '!Работает, когда «Функция рычага страйнера» = FX CONTROL.',
+        'Strainer Lever Overhead Control', 'Strainer Lever Room Control', 'Strainer Lever Reverb Control', 'Strainer Lever Kit Reso Control',
+        'Strainer Lever BUS A FX1 Control', 'Strainer Lever BUS A FX2 Control', 'Strainer Lever BUS B FX1 Control', 'Strainer Lever BUS B FX2 Control',
+        'Strainer Lever BUS C FX1 Control', 'Strainer Lever BUS C FX2 Control', 'Strainer Lever BUS D FX1 Control', 'Strainer Lever BUS D FX2 Control',
+        'Strainer Lever BUS Reverb Control']);
     }, { fold: true, closed: true }));
     view.append(section('Компрессор кита', async () => {
       const b = ADDR.kitComp(k);
@@ -1678,7 +1928,8 @@
       const draw = () => {
         const t = val('KitMasterComp', b, 'Kit Comp Type');
         params.replaceChildren(row('KitMasterComp', b, t ? 'Template (Type: FETCOMP-76)' : 'Template (Type: STANDARD)', { label: 'Шаблон', select: true, onSet: () => setTimeout(() => V.load('KitMasterComp', b, true), 200) }),
-          typedList('KitMasterComp', b, 'Comp Parameter', t ? T.COMP.KIT_FET : T.COMP.KIT_STANDARD));
+          typedList('KitMasterComp', b, 'Comp Parameter', t ? T.COMP.KIT_FET : T.COMP.KIT_STANDARD),
+          t ? '' : h('p', { class: 'muted small' }, 'Split Freq = SINGLE — работает один компрессор с параметрами Hi, параметры Lo не действуют. Частота 10–16000 Hz делит сигнал на две полосы: Hi — выше частоты, Lo — ниже.'));
       };
       const box = h('div', null, row('KitMasterComp', b, 'Kit Comp Switch', { label: 'Включён' }),
         row('KitMasterComp', b, 'Kit Comp Type', { label: 'Тип', onSet: () => setTimeout(async () => { await V.load('KitMasterComp', b, true); draw(); }, 250) }), params);
@@ -1702,7 +1953,7 @@
         return h('td', null, r);
       };
       const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '').replace('hihat', 'hh');
-      for (const p of P.filter((q) => /^Note /.test(q.name))) {
+      for (const p of P.filter((q) => /^Note /.test(q.name) && !hiddenByName(q.name))) {
         const zone = p.name.slice(5);
         const zn = norm(zone).replace('open', '').replace('close', '').replace('closed', '');
         const gate = P.find((q) => /^Gate Time /.test(q.name) && norm(q.name.slice(10)) === zn);
@@ -1718,61 +1969,159 @@
   // =====================================================================
   // Триггеры
   // =====================================================================
+  // Входы V31: коса DB-25 (бочка, малый, томы 1–3, хай-хэт, крэш 1, райд) и два гнезда сзади (CRASH 2, AUX).
+  // В документации Roland гнездо AUX называется AUX/TOM4: оно может играть звуки AUX или TOM4.
+  const TRIG_INPUTS = [
+    { i: 1, pad: 1, ru: 'Бочка', xt: 'Kick XTalk Cancel', rim: false },
+    { i: 2, pad: 2, ru: 'Малый', xt: 'Snare XTalk Cancel', rim: true },
+    { i: 3, pad: 3, ru: 'Том 1', xt: 'Tom 1 XTalk Cancel', rim: true },
+    { i: 4, pad: 4, ru: 'Том 2', xt: 'Tom 2 XTalk Cancel', rim: true },
+    { i: 5, pad: 5, ru: 'Том 3', xt: 'Tom 3 XTalk Cancel', rim: true },
+    { i: 7, pad: 7, ru: 'Хай-хэт', xt: 'Hi-Hat XTalk Cancel', rim: true },
+    { i: 8, pad: 8, ru: 'Крэш 1', xt: 'Crash 1 XTalk Cancel', rim: true },
+    { i: 9, pad: 9, ru: 'Крэш 2', xt: 'Crash 2 XTalk Cancel', rim: true, jack: true },
+    { i: 10, pad: 10, ru: 'Райд', xt: 'Ride XTalk Cancel', rim: true },
+    { i: 11, pad: 11, ru: 'AUX', xt: 'Aux / TOM 4 XTalk Cancel', rim: true, jack: true },
+  ];
+  const DIGITAL_MODELS = {
+    'PD-14DSX': ['Position Adjust', 'XStick Detect Sens', 'Strainer Lever Sens', 'LED Brightness'],
+    'PD-140DS': ['Position Adjust', 'XStick Detect Sens'],
+    'CY-18DR': ['Position Adjust', 'Choke Sens', 'Bell Gain', 'Position Adjust LR'],
+    'VH-14D': ['Position Adjust', 'Position Adjust LR', 'Choke Sens'],
+  };
+  // Значения как в MIDI Implementation: на модуле 1–10, а передаётся 0–9 и т. п.
+  const DIGITAL_HINTS = {
+    'Position Adjust': '1, 2, 3, 4, 5, 6, 7, 8, 9, 10', 'Position Adjust LR': '1, 2, 3, 4, 5, 6, 7, 8, 9, 10',
+    'XStick Detect Sens': 'OFF, 1, 2, 3, 4, 5', 'Strainer Lever Sens': '1, 2, 3, 4, 5',
+    'LED Brightness': 'OFF, 1, 2, 3, 4, 5', 'Choke Sens': 'OFF, 1, 2, 3, 4, 5', 'Bell Gain': '0.0–3.2',
+  };
+
   function viewTrig(view) {
     view.append(h('h1', { class: 'view' }, 'Триггеры'));
     const bank = S.trigBank;
+    const mb = ADDR.trigMisc(bank);
     view.append(section('Банк триггеров', async () => {
-      await need([['SetupControl', ADDR.setupControl], ['TrigMisc', ADDR.trigMisc(bank)]], S.renderId);
+      await need([['SetupControl', ADDR.setupControl], ['TrigMisc', mb]], S.renderId);
       const sel = h('select', { 'aria-label': 'Банк для правки' });
       for (let i = 1; i <= 16; i++) sel.append(h('option', { value: i }, 'Банк ' + i));
       sel.value = bank;
       sel.addEventListener('change', () => { S.trigBank = +sel.value; render(); });
       return h('div', null,
         row('SetupControl', ADDR.setupControl, 'Trig Bank Number', { label: 'Активный банк на модуле' }),
-        h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Правлю банк'), sel),
-        textRow('TrigMisc', ADDR.trigMisc(bank), 'Trigger Bank Name', 'Имя банка'));
+        h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Правлю банк', h('small', null, 'можно настроить неактивный банк заранее')), sel),
+        textRow('TrigMisc', mb, 'Trigger Bank Name', 'Имя банка'),
+        row('TrigMisc', mb, 'Global Sens', { note: 'для всех пэдов и всех банков' }));
     }));
-    const seg = h('div', { class: 'seg', style: 'margin:0 0 12px' });
-    seg.append(h('button', { class: !S.trigDigital ? 'on' : '', onclick: () => { S.trigDigital = false; S.trigInput = 1; render(); } }, 'Аналоговые входы'));
-    seg.append(h('button', { class: S.trigDigital ? 'on' : '', onclick: () => { S.trigDigital = true; S.trigInput = 1; render(); } }, 'Цифровые пэды'));
-    view.append(seg);
+
     const inSeg = h('div', { class: 'seg', style: 'margin:0 0 12px' });
-    const count = S.trigDigital ? 14 : 11;
-    for (let i = 1; i <= count; i++) {
-      if (!S.trigDigital && i === 6) continue;
-      inSeg.append(h('button', { class: S.trigInput === i ? 'on' : '', onclick: () => { S.trigInput = i; render(); } }, S.trigDigital ? 'Цифр. ' + i : V.TRIG_ANALOG[i - 1]));
+    if (!TRIG_INPUTS.some((x) => x.i === S.trigInput) && S.trigInput !== 'D') S.trigInput = 1;
+    for (const x of TRIG_INPUTS) {
+      const nm = x.pad === 11 && auxIsTom4() ? 'AUX (как Том 4)' : S.padNames[x.pad] ? padName(PADS[x.pad - 1]) : x.ru;
+      inSeg.append(h('button', { class: S.trigInput === x.i ? 'on' : '', onclick: () => { S.trigInput = x.i; render(); } }, nm));
     }
+    inSeg.append(h('button', { class: S.trigInput === 'D' ? 'on' : '', onclick: () => { S.trigInput = 'D'; render(); } }, 'Цифровой пэд'));
     view.append(inSeg);
-    const type = S.trigDigital ? 'TrigDigital' : 'TrigAnalog';
-    const base = S.trigDigital ? ADDR.trigDigital(bank, S.trigInput) : ADDR.trigAnalog(bank, S.trigInput);
-    view.append(section(S.trigDigital ? `Цифровой пэд ${S.trigInput}` : `Вход ${V.TRIG_ANALOG[S.trigInput - 1]}`, async () => {
-      await need([[type, base]], S.renderId);
-      const box = h('div');
-      if (!S.trigDigital) box.append(trigTypeRow(base));
-      else box.append(h('div', { class: 'note' }, 'Roland советует настраивать цифровые пэды на самом модуле. Значения дополнительных параметров зависят от модели пэда.'));
-      box.append(blockEditor(type, base, { skip: /^(Trig Type|Digital Pad Advanced)/ }));
-      if (S.trigDigital) {
-        const adv = BLOCKS.TrigDigital.params.filter((p) => /^Digital Pad Advanced/.test(p.name));
-        for (const p of adv) box.append(row(type, base, p));
-      }
+
+    if (S.trigInput === 'D') { viewTrigDigital(view, bank); return; }
+    const inp = TRIG_INPUTS.find((x) => x.i === S.trigInput);
+    const base = ADDR.trigAnalog(bank, inp.i);
+    view.append(section(inp.ru + (inp.jack ? ' · отдельное гнездо сзади' : ' · коса'), async () => {
+      await need([['TrigAnalog', base], ['TrigMisc', mb]], S.renderId);
+      const box = h('div', null, trigTypeRow(base));
+      for (const n of ['Sensitivity', 'Threshold', 'Curve']) box.append(row('TrigAnalog', base, n));
+      if (inp.rim) for (const n of ['Rim Gain', 'Head/Rim Adjust']) box.append(row('TrigAnalog', base, n));
+      if (inp.i === 2) box.append(row('TrigMisc', mb, 'Analog XStick Threshold', { label: 'Порог кросс-стика (аналоговый малый)' }));
       return box;
     }));
-    view.append(section('Общие настройки банка: хай-хэт, перекрёстные помехи', async () => {
-      await need([['TrigMisc', ADDR.trigMisc(bank)]], S.renderId);
-      return blockEditor('TrigMisc', ADDR.trigMisc(bank));
+    if (inp.i === 7) view.append(section('Хай-хэт', async () => { await need([['TrigAnalog', base], ['TrigMisc', mb]], S.renderId); return hiHatBox(base, mb); }));
+    view.append(section('Дополнительно (ADVANCED)', async () => {
+      await need([['TrigAnalog', base], ['TrigMisc', mb]], S.renderId);
+      const box = h('div');
+      for (const n of ['Scan Time', 'Mask Time', 'Retrigger Cancel', 'Ext Noise Cancel']) box.append(row('TrigAnalog', base, n));
+      box.append(row('TrigMisc', mb, inp.xt, { label: 'Подавление перекрёстных помех (XTalk Cancel)' }));
+      if (inp.rim) for (const n of ['Position Head', 'Position Rim']) box.append(row('TrigAnalog', base, n, { note: 'для пэдов с определением места удара' }));
+      return box;
     }, { fold: true, closed: true }));
+  }
+
+  /** Хай-хэт: параметры зависят от модели (VH-12 / VH-13 / VH-14D или другая с педалью FD). */
+  function hiHatBox(base, mb) {
+    const box = h('div');
+    const tv = val('TrigAnalog', base, 'Trig Type');
+    const detected = ['VH-12', 'VH-13', 'VH-14D'].find((m) => T.TRIG_TYPES[tv] === m) || 'FD';
+    S.hhModel = S.hhModel || detected;
+    const seg = h('div', { class: 'seg' });
+    const inner = h('div');
+    const draw = () => {
+      seg.replaceChildren(...['VH-12', 'VH-13', 'VH-14D', 'FD'].map((m) => h('button', { class: S.hhModel === m ? 'on' : '', onclick: () => { S.hhModel = m; draw(); } }, m === 'FD' ? 'другой (педаль FD)' : m)));
+      binds = binds.filter((b) => b.hh !== inner);
+      const before = binds.length;
+      const m = S.hhModel;
+      const rows = m === 'FD'
+        ? [row('TrigMisc', mb, 'HI-HAT FD Foot Splash Sens', { label: 'Foot Splash Sens' }), row('TrigMisc', mb, 'HI-HAT CC MAX', { label: 'CC Max', note: 'менять не нужно, если играете только с V31' })]
+        : [row('TrigMisc', mb, `HI-HAT ${m} Offset`, { label: 'Offset', note: 'насколько открыт хай-хэт' }),
+          row('TrigMisc', mb, `HI-HAT ${m} Foot Splash Sens`, { label: 'Foot Splash Sens' }),
+          row('TrigMisc', mb, `HI-HAT ${m} Noise Cancel`, { label: 'Noise Cancel' }),
+          m === 'VH-14D' ? row('TrigMisc', mb, 'HI-HAT VH-14D Pressure Sens', { label: 'Pressure Sens' }) : null];
+      for (const b of binds.slice(before)) b.hh = inner;
+      inner.replaceChildren(...rows.filter(Boolean));
+    };
+    draw();
+    box.append(h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Модель хай-хэта', h('small', null, 'настройки для каждой модели хранятся отдельно')), seg), inner);
+    return box;
+  }
+
+  /** Цифровой вход DIGITAL TRIGGER IN: один пэд (PD-14DSX, PD-140DS, CY-18DR, VH-14D). */
+  function viewTrigDigital(view, bank) {
+    S.digSlot = S.digSlot || 1;
+    if (!V.settings.engineering) S.digSlot = 1;
+    const base = ADDR.trigDigital(bank, S.digSlot);
+    view.append(h('div', { class: 'note' }, 'У V31 один цифровой вход (DIGITAL TRIGGER IN) — для цифрового малого, райда или хай-хэта. Roland советует настраивать цифровые пэды на самом модуле; на какой вход назначен пэд (Pad Assign), выбирается только на модуле.'));
+    if (V.settings.engineering) {
+      const sel = h('select', { 'aria-label': 'Слот цифрового пэда' });
+      for (let i = 1; i <= 14; i++) sel.append(h('option', { value: i }, 'Слот ' + i + (i > 1 ? ' (беспроводные пэды через хаб)' : '')));
+      sel.value = S.digSlot;
+      sel.addEventListener('change', () => { S.digSlot = +sel.value; render(); });
+      view.append(h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Слот', h('small', null, 'пэды занимают слоты в порядке распознавания')), sel));
+    }
+    view.append(section('Цифровой пэд', async () => {
+      await need([['TrigDigital', base]], S.renderId);
+      const box = h('div');
+      S.digModel = S.digModel || store.get('digmodel', 'PD-14DSX');
+      const mseg = h('div', { class: 'seg' });
+      const adv = h('div');
+      const draw = () => {
+        mseg.replaceChildren(...Object.keys(DIGITAL_MODELS).map((m) => h('button', { class: S.digModel === m ? 'on' : '', onclick: () => { S.digModel = m; store.set('digmodel', m); draw(); } }, m)));
+        binds = binds.filter((b) => b.dig !== adv);
+        const before = binds.length;
+        const params = BLOCKS.TrigDigital.params.filter((p) => /^Digital Pad Advanced/.test(p.name));
+        adv.replaceChildren(...DIGITAL_MODELS[S.digModel].map((n, i) => typedRow('TrigDigital', base, params[i], n, DIGITAL_HINTS[n])));
+        for (const b of binds.slice(before)) b.dig = adv;
+      };
+      draw();
+      box.append(h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Какой пэд подключён'), mseg));
+      for (const n of ['Sensitivity', 'Threshold', 'Curve', 'Rim Gain', 'Head/Rim Adjust']) box.append(row('TrigDigital', base, n));
+      box.append(h('div', { class: 'grp' }, 'Настройки модели'), adv);
+      box.append(h('div', { class: 'grp' }, 'Дополнительно'));
+      for (const n of ['Scan Time', 'Mask Time', 'Retrigger Cancel', 'Ext Noise Cancel']) box.append(row('TrigDigital', base, n));
+      return box;
+    }));
   }
 
   function trigTypeRow(base) {
     const p = BLOCKS.TrigAnalog.byName['Trig Type'];
     const sel = h('select', { 'aria-label': 'Тип пэда' });
     T.TRIG_TYPES.forEach((t, i) => sel.append(h('option', { value: i }, t)));
-    sel.addEventListener('change', () => V.setValue('TrigAnalog', base, p, +sel.value));
+    sel.addEventListener('change', () => {
+      V.setValue('TrigAnalog', base, p, +sel.value);
+      // модуль сам подставляет настройки под выбранный пэд — перечитываем вход
+      setTimeout(() => V.load('TrigAnalog', base, true).catch(() => {}), 400);
+    });
     const raw = h('span', { class: 'val' });
     const update = () => { const v = val('TrigAnalog', base, p); if (v === null) return; if (!sel.querySelector(`option[value="${v}"]`)) sel.append(h('option', { value: v }, '#' + v)); sel.value = v; raw.textContent = '#' + v; };
     binds.push({ base, off: p.off, bytes: 1, update });
     update();
-    return h('div', { class: 'row' }, h('div', { class: 'lbl' }, 'Тип пэда (Trig Type)', h('small', null, 'по списку Data List, сверьте с экраном модуля')), sel, raw);
+    return h('div', { class: 'row' }, h('div', { class: 'lbl' }, 'Тип пэда (Trig Type)', h('small', null, 'при выборе модуль сам подставит настройки под пэд. Список из Data List — сверьте с экраном модуля')), sel, raw);
   }
 
   // =====================================================================
@@ -1830,16 +2179,24 @@
     gap.addEventListener('change', () => { V.Link.gapMs = Math.max(0, +gap.value); saveSettings(); });
     const ch = h('input', { type: 'number', min: 1, max: 16, value: V.settings.globalCh || 10 });
     ch.addEventListener('change', () => { V.settings.globalCh = Math.max(1, Math.min(16, +ch.value)); saveSettings(); });
+    const aux = h('select', { 'aria-label': 'Гнездо AUX' }, h('option', { value: 'aux' }, 'AUX (как обычно)'), h('option', { value: 'tom4' }, 'Том 4'));
+    aux.value = V.settings.auxAs || 'aux';
+    aux.addEventListener('change', () => { V.settings.auxAs = aux.value; saveSettings(); render(); });
     view.append(section('Приложение', h('div', null,
       h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Device ID', h('small', null, 'как на модуле: MENU → SYSTEM → MIDI → BASIC, по умолчанию 17')), dev),
       h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'MIDI-канал для прослушивания', h('small', null, 'Global MIDI Channel модуля, по умолчанию 10')), ch),
       h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Пауза между сообщениями, мс', h('small', null, 'увеличьте, если по Bluetooth теряются данные')), gap),
       h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Кодировка отрицательных значений', h('small', null, 'проверяется на модуле по Pan и Pitch')), sg),
+      h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Гнездо AUX играет звуки', h('small', null, 'как на модуле: MENU → SYSTEM → TRIGGER, вкладка AUX/TOM4. Модуль не сообщает эту настройку по MIDI, поэтому выберите то же самое здесь — от этого зависит, какой пэд показывать на карте и в микшере: AUX или Том 4')), aux),
       h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, 'Инженерный режим', h('small', null, 'показывать адреса и «сырые» значения, все параметры эффектов и V-EDIT')), eng),
       h('div', { class: 'btns', style: 'padding-top:10px' },
         h('button', { class: 'btn', onclick: () => { V.Link.identity(); toast('Запрос отправлен — ответ появится в «Мониторе»'); } }, 'Проверить связь'),
         h('button', { class: 'btn', onclick: () => { V.mem.clear(); render(); toast('Всё будет прочитано заново'); } }, 'Перечитать всё из модуля'),
         h('button', { class: 'btn', onclick: () => { S.names = {}; store.set('kitnames', {}); toast('Имена китов забыты'); } }, 'Забыть имена китов')))));
+    view.append(section('Названия пэдов', h('div', null,
+      h('p', { class: 'muted small', style: 'margin-top:4px' }, 'Например, AUX — «Ковбелл», Крэш 2 — «Сплэш». Названия хранятся в планшете и видны на всех экранах пульта.'),
+      ...UI_PADS().map((p) => h('div', { class: 'row wide' }, h('div', { class: 'lbl' }, padName(p), S.padNames[p.id] ? h('small', null, 'было: ' + (DEFAULT_PAD_NAMES[p.id] || p.ru)) : null),
+        h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: () => renamePad(p) }, 'Переименовать'))))), { fold: true, closed: true }));
     if (!V.Link.connected) {
       view.append(h('div', { class: 'note' }, 'Настройки модуля (выходы, метроном) появятся после подключения.'));
       return;
@@ -1851,7 +2208,18 @@
     }));
     view.append(section('Выходы (Output)', async () => {
       await need([['SetupOutput', ADDR.setupOutput]], S.renderId);
-      return blockEditor('SetupOutput', ADDR.setupOutput, { skip: /^OutEQ/ });
+      const ma = (n, ru) => [n + ' Master Assign', { label: ru }];
+      return rowsList('SetupOutput', ADDR.setupOutput, [
+        '!Куда идёт звук: только в наушники или ещё и на выходы MASTER. Так можно, например, слышать метроном только в наушниках.',
+        'Пэды', ma('Kick', 'Бочка'), ma('Snare', 'Малый'), ma('Tom 1', 'Том 1'), ma('Tom 2', 'Том 2'), ma('Tom 3', 'Том 3'), ma('Tom 4', 'Том 4'),
+        ma('Hi-Hat', 'Хай-хэт'), ma('Crash 1', 'Крэш 1'), ma('Crash 2', 'Крэш 2'), ma('Ride', 'Райд'), ma('Aux', 'AUX'), ma('Aux 2', 'AUX 2'), ma('Aux 3', 'AUX 3'), ma('Aux 4', 'AUX 4'),
+        'Шины эффектов и эмбиенс', ma('Bus-A', 'Шина A'), ma('Bus-B', 'Шина B'), ma('Bus-C', 'Шина C'), ma('Bus-D', 'Шина D'), ma('Bus Reverb', 'Bus Reverb'),
+        ma('Overhead', 'Overhead'), ma('Room', 'Room'), ma('Reverb', 'Reverb'), ma('Kit Resonance', 'Kit Resonance'),
+        'Песня, метроном, входы', ma('Song', 'Песня (Song)'), ma('Click', 'Метроном (Click)'), ma('Mix In / Bluetooth', 'Mix In / Bluetooth'),
+        ma('Usb In Main', 'USB-аудио MAIN'), ma('Usb In Sub', 'USB-аудио SUB'),
+        'Low Cut', 'Low Cut Freq', 'Master Low Cut', 'Phones Low Cut',
+        'Громкость', 'MASTER/PHONES Knob Type', 'Fixed Master Volume', 'AmbVol',
+      ]);
     }, { fold: true, closed: true }));
     view.append(section('EQ выхода', async () => {
       await need([['SetupOutput', ADDR.setupOutput]], S.renderId);
@@ -1859,7 +2227,13 @@
     }, { fold: true, closed: true }));
     view.append(section('Mix In, Bluetooth, USB-аудио', async () => {
       await need([['SetupMisc', ADDR.setupMisc]], S.renderId);
-      return blockEditor('SetupMisc', ADDR.setupMisc);
+      return rowsList('SetupMisc', ADDR.setupMisc, ['Mix In / Bluetooth Gain',
+        'USB-аудио', 'Usb Audio Input Gain', 'Usb Audio Output Gain', 'Usb Audio Input MAIN Volume Select', 'Usb Audio Input SUB Volume Select']);
+    }, { fold: true, closed: true }));
+    view.append(section('Экран: картинка и имя кита', async () => {
+      await need([['SetupMisc', ADDR.setupMisc]], S.renderId);
+      return h('div', null, h('p', { class: 'muted small', style: 'margin:4px 0' }, 'Эти настройки действуют для китов, у которых в «Настройках кита» выбрано ОБЩИЙ.'),
+        rowsList('SetupMisc', ADDR.setupMisc, ['Global Kit Image', 'Global Kit Name Size']));
     }, { fold: true, closed: true }));
   }
 

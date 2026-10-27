@@ -15,7 +15,26 @@ window.V31I18N = (function () {
     'Time': 'Время',
     'Distance': 'Расстояние',
     'Character': 'Характер',
-    'Switch': 'Вкл',
+    'Switch': 'Включён',
+    'Head Type': 'Тип пластика (Head)',
+    'Beater Type': 'Колотушка (Beater)',
+    'Mic Distance': 'Расстояние до микрофона',
+    'Mic Size': 'Размер микрофона',
+    'Wire Type': 'Тип пружин (Wire)',
+    'Wire Level': 'Громкость пружин (Wire Level)',
+    'Buzz Muffling': 'Buzz Muffling (глушение дребезга)',
+    'Shell Depth': 'Глубина корпуса (Shell Depth)',
+    'Transient Attack Type': 'Transient Attack Type',
+    'Overhead Send Level': 'Посыл в Overhead',
+    'Room Send Level': 'Посыл в Room',
+    'Reverb Send Level': 'Посыл в Reverb',
+    'Kit Resonance Send Level': 'Посыл в Kit Resonance',
+    'Side Chain Control Send Level': 'Уровень сигнала для сайдчейна',
+    'Usb Audio Input Gain': 'USB-вход: Gain',
+    'Usb Audio Output Gain': 'USB-выход: Gain',
+    'Low Cut Freq': 'Low Cut: частота',
+    'AmbVol': 'Громкость эмбиенса (AmbVol)',
+    'Snare Buzz Sens': 'Snare Buzz Sens (дребезг малого от этого пэда)',
     'Red': 'Красный',
     'Green': 'Зелёный',
     'Blue': 'Синий',
@@ -69,12 +88,16 @@ window.V31I18N = (function () {
     'Template (Type: STANDARD)': 'Шаблон (STANDARD)',
     'Template (Type: FETCOMP-76)': 'Шаблон (FETCOMP-76)',
     'ReverbType': 'Тип реверба',
+    'Reverb Type': 'Вариант (Reverb Type)',
     'User Sample Transient Type': 'Тип транзиента (user sample)',
     'HH Open/Close Balance': 'Баланс открытого/закрытого хай-хэта',
-    'Output Routing': 'Маршрут выхода',
+    'Output Routing': 'Отправка в шину эффектов',
+    'Ext Noise Cancel': 'Подавление внешних помех (Ext Noise Cancel)',
     'Position Control': 'Position (по месту удара)',
     'Pad Side Chain Control': 'Управление сайдчейном',
     'Bus Send Level': 'Уровень посыла в шину',
+    'Bus-A Output': 'Шина A → дальше', 'Bus-B Output': 'Шина B → дальше', 'Bus-C Output': 'Шина C → дальше',
+    'Bus Send Head/Rim': 'Посыл в шину: пэд целиком / пластик и обод отдельно',
   };
 
   // Последнее слово названия → русское слово в начало: «Kit Comp Type» → «Тип Kit Comp»
@@ -91,7 +114,7 @@ window.V31I18N = (function () {
     if (!n) return n;
     if (EXACT[n]) return EXACT[n];
     let m;
-    if ((m = n.match(/^(.*) Master Assign$/))) return m[1] + ': выход';
+    if ((m = n.match(/^(.*) Master Assign$/))) return m[1] + ': на какие выходы';
     if ((m = n.match(/^(.*) XTalk Cancel$/))) return m[1] + ': подавление XTalk';
     if ((m = n.match(/^Channel (.*)$/))) return 'Канал ' + m[1];
     if ((m = n.match(/^Strainer Lever (.*) Control$/))) return 'Рычаг страйнера → ' + m[1];
@@ -109,15 +132,25 @@ window.V31I18N = (function () {
   const VAL = {
     OFF: 'ВЫКЛ', ON: 'ВКЛ', 'ALWAYS ON': 'ВСЕГДА ВКЛ', 'ALWAYS OFF': 'ВСЕГДА ВЫКЛ', DISABLE: 'НЕТ',
     'LEVER ON': 'РЫЧАГ ВКЛ', 'LEVER OFF': 'РЫЧАГ ВЫКЛ', 'FUNCTION OFF': 'НЕТ', DEFAULT: 'ПО УМОЛЧАНИЮ',
-    GLOBAL: 'ОБЩИЙ', 'END (*2)': 'КОНЕЦ', SMALL: 'МАЛЕНЬКИЙ', MEDIUM: 'СРЕДНИЙ', LARGE: 'БОЛЬШОЙ',
-    LOW: 'НИЗКАЯ', NORMAL: 'ОБЫЧНЫЙ', HIGH: 'ВЫСОКАЯ', 'PHONES ONLY': 'ТОЛЬКО НАУШНИКИ',
-    'PHONES+MASTER(L+R)': 'НАУШНИКИ + MASTER', 'ON (Rim Click OFF)': 'ВКЛ (без щелчка обода)',
+    GLOBAL: 'ОБЩИЙ', 'END (*2)': 'КОНЕЦ',
+    'PHONES ONLY': 'ТОЛЬКО НАУШНИКИ',
+    'PHONES+MASTER(L+R)': 'НАУШНИКИ + MASTER',
+    DRUM: 'БЕЗ ЭФФЕКТА', 'DRUM + SEND BUS A': 'ПОСЫЛ В ШИНУ A', 'DRUM + SEND BUS B': 'ПОСЫЛ В ШИНУ B',
+    'DRUM + SEND BUS C': 'ПОСЫЛ В ШИНУ C', 'DRUM + SEND BUS D': 'ПОСЫЛ В ШИНУ D',
+    'INSERT TO BUS A': 'ЦЕЛИКОМ ЧЕРЕЗ ШИНУ A', 'INSERT TO BUS B': 'ЦЕЛИКОМ ЧЕРЕЗ ШИНУ B',
+    'INSERT TO BUS C': 'ЦЕЛИКОМ ЧЕРЕЗ ШИНУ C', 'INSERT TO BUS D': 'ЦЕЛИКОМ ЧЕРЕЗ ШИНУ D', 'ON (Rim Click OFF)': 'ВКЛ (без щелчка обода)',
     '1: WHITE': 'Белый', '2: RED': 'Красный', '3: GREEN': 'Зелёный', '4: BLUE': 'Синий', '5: LIGHT BLUE': 'Голубой',
     '6: PINK': 'Розовый', '7: PURPLE': 'Фиолетовый', '8: ORANGE': 'Оранжевый', '9: YELLOW': 'Жёлтый',
     '10: EMERALD': 'Изумрудный', '11: CUSTOM': 'Свой (RGB)', SHELV: 'SHELF',
   };
-  function value(s) {
+  // Где «бытовые» слова зависят от параметра
+  const CTX = [
+    [/Mic Size|Размер микрофона/, { NORMAL: 'ОБЫЧНЫЙ', LARGE: 'БОЛЬШОЙ' }],
+    [/Kit Name Size|Размер имени/, { SMALL: 'МАЛЕНЬКИЙ', MEDIUM: 'СРЕДНИЙ', LARGE: 'БОЛЬШОЙ' }],
+  ];
+  function value(s, ctx) {
     if (s === undefined || s === null) return s;
+    if (ctx) for (const [re, map] of CTX) if (re.test(ctx) && map[s]) return map[s];
     if (VAL[s]) return VAL[s];
     const m = String(s).match(/^Channel (\d+)$/);
     if (m) return 'Канал ' + m[1];

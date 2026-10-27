@@ -137,7 +137,8 @@ input[type=text], input[type=number] {
   background: #12161a; -webkit-user-select: text; user-select: text;
 }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
-.seg button { border: 0; background: var(--panel-2); padding: 8px 12px; min-height: 38px; color: var(--muted); }
+.seg button { border: 0; background: var(--panel-2); padding: 8px 14px; min-height: 40px; color: #c9d0d6; }
+.seg button:hover { background: #313a44; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .toggle { position: relative; width: 58px; height: 34px; border-radius: 17px; border: 1px solid var(--line); background: var(--panel-2); padding: 0; }
@@ -166,7 +167,7 @@ input[type=text], input[type=number] {
 .pad .pi { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .pad.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .pad.cym { border-radius: 40px 40px 12px 12px; }
-.pad.kick { grid-column: 2 / span 3; }
+.pad.wide { grid-column: span 2; }
 .pad .hit { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent); width: 0; transition: width .05s; }
 .pad.flash { background: var(--panel-2); }
 .layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -312,3 +313,18 @@ body.locked nav.rail button:disabled { opacity: .3; }
   .eq > .eq-panel { grid-row: 2; }
   .eq .eq-panel .row, .eq > div:not([class]) .row { grid-template-columns: 70px 1fr auto; }
 }
+
+.layer-mode .seg { justify-self: start; }
+.layer-mode small { max-width: 34ch; }
+.velo { margin-top: 6px; }
+
+.iconbtn.rename { min-width: 40px; min-height: 40px; font-size: 18px; }
+.small-dialog > input { width: 100%; font-size: 20px; }
+
+/* ---------- редактирование карты пэдов ---------- */
+.padmap { grid-auto-flow: row dense; }
+.padmap-tools { margin: -4px 0 8px; min-height: 44px; }
+.padmap.editing .pad { touch-action: none; cursor: grab; border-style: dashed; animation: none; }
+.padmap.editing .pad.dragging { z-index: 5; cursor: grabbing; border-style: solid; border-color: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.5); opacity: .95; }
+.pad-tools { position: absolute; right: 6px; top: 6px; display: flex; gap: 6px; }
+.ptool { min-width: 34px; height: 34px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 15px; padding: 0 6px; }

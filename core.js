@@ -28,6 +28,21 @@
       if (!(p.name in BLOCKS[name].byName)) BLOCKS[name].byName[p.name] = p;
     }
   }
+  // В карте у частот фильтров Overhead нет единиц («20», «7.15k») — добавляем Hz, как у остальных EQ
+  for (const p of BLOCKS.KitOverhead.params) {
+    if (/^Filter \d-[AB] Freq$/.test(p.name) && p.fmt && p.fmt.items) p.fmt = Object.assign({}, p.fmt, { items: p.fmt.items.map((x) => (/Hz$/.test(x) ? x : x + 'Hz')) });
+  }
+  // Усиление EQ выхода в карте без шкалы: -12…+12 dB
+  for (const p of BLOCKS.SetupOutput.params) if (/^OutEQ_.*Gain$/.test(p.name) && !p.fmt) p.fmt = { t: 'lin', a: p.min, b: p.max, dec: 0, unit: 'dB' };
+  // Ноты KIT MIDI: «36 (C2)», как на экране V-Drums
+  {
+    const NN = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    for (const p of BLOCKS.KitMidi.params) {
+      if (/^Note /.test(p.name) && p.fmt && p.fmt.items) p.fmt = Object.assign({}, p.fmt, { items: p.fmt.items.map((x) => (/^\d+$/.test(x) ? `${x} (${NN[+x % 12]}${Math.floor(+x / 12) - 1})` : x)) });
+    }
+  }
+  // «Low Cut Freq»: «20 … 200(Hz)»
+  { const p = BLOCKS.SetupOutput.byName['Low Cut Freq']; if (p && p.fmt && p.fmt.items) p.fmt = Object.assign({}, p.fmt, { items: p.fmt.items.map((x) => x.replace(/\(Hz\)$/, '') + ' Hz') }); }
 
   // Зоны (KitUnitCommon / KitUnitLayer) и пэды (KitPad) в порядке карты.
   const ZONES = ['KICK', 'SNARE HEAD', 'SNARE RIM', 'TOM1 HEAD', 'TOM1 RIM', 'TOM2 HEAD', 'TOM2 RIM', 'TOM3 HEAD', 'TOM3 RIM',
@@ -45,7 +60,7 @@
     { id: 8, name: 'CRASH1', ru: 'Крэш 1', zones: [14, 15] },
     { id: 9, name: 'CRASH2', ru: 'Крэш 2', zones: [16, 17] },
     { id: 10, name: 'RIDE', ru: 'Райд', zones: [18, 19, 20] },
-    { id: 11, name: 'AUX', ru: 'AUX 1', zones: [21, 22] },
+    { id: 11, name: 'AUX', ru: 'AUX', zones: [21, 22] },
     { id: 12, name: 'AUX2', ru: 'AUX 2', zones: [23, 24] },
     { id: 13, name: 'AUX3', ru: 'AUX 3', zones: [25, 26] },
     { id: 14, name: 'AUX4', ru: 'AUX 4', zones: [27, 28] },
@@ -219,6 +234,12 @@
         return out;
       }
     }
+    m = tok.match(/^(\d+)–(\d+)$/);
+    if (m && +m[2] > +m[1] && +m[2] - +m[1] < 200) {
+      const out = [];
+      for (let i = +m[1]; i <= +m[2]; i++) out.push(String(i));
+      return out;
+    }
     m = tok.match(/^(.*?\s)([A-Z])–([A-Z])$/);
     if (m) {
       const out = [];
@@ -243,6 +264,15 @@
       return { kind: 'num', lo, hi, dec, unit: m[5] || m[6] || '', inf: !!m[1], normal: !!m[3] };
     }
     if (/^Note\b/.test(h)) return { kind: 'enum', items: NOTES };
+    // «SINGLE, 10–16000 [Hz]»: слово перед большим диапазоном — значение на шаг ниже начала
+    const wm = h.match(/^([A-Z][A-Z ]*), (.+)$/);
+    if (wm) {
+      const n = h.slice(wm[1].length + 2).match(NUMRE);
+      if (n && !n[1] && parseFloat(n[4]) - parseFloat(n[2]) >= 200) {
+        const r = parseHint(h.slice(wm[1].length + 2));
+        return Object.assign(r, { first: wm[1] });
+      }
+    }
     const pm = h.match(/^L(\d+)–(\d+)R$/);
     if (pm) return { kind: 'pan', lo: -(+pm[1]), hi: +pm[2] };
     if (/^D100:0W–D0:100W$/.test(h)) return { kind: 'num', lo: 0, hi: 100, dec: 0, unit: '', bal: true };
@@ -265,7 +295,7 @@
     if (spec.kind === 'enum') return [0, spec.items.length - 1];
     if (spec.kind === 'pan') return [spec.lo, spec.hi];
     const s = Math.pow(10, spec.dec);
-    return [Math.round(spec.lo * s) - (spec.inf ? 1 : 0), Math.round(spec.hi * s)];
+    return [Math.round(spec.lo * s) - (spec.inf || spec.first ? 1 : 0), Math.round(spec.hi * s)];
   }
 
   function hintFormat(spec, v) {
@@ -274,6 +304,7 @@
     if (spec.bal) return `D${100 - v}:${v}W`;
     if (spec.kind === 'pan') return v < 0 ? 'L' + -v : v > 0 ? 'R' + v : 'C';
     const s = Math.pow(10, spec.dec);
+    if (spec.first && v < Math.round(spec.lo * s)) return spec.first;
     if (spec.inf && v < Math.round(spec.lo * s)) return '−∞';
     if (spec.normal && v === 0) return 'NORMAL';
     const x = v / s;

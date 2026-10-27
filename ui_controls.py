@@ -104,6 +104,23 @@ with sync_playwright() as p:
     pg.locator('section:has-text("EQ кита")').first.screenshot(path=f'{OUT}/eq_kit.png')
     pg.click('nav button[data-tab="amb"]'); pg.wait_for_timeout(800)
     pg.click('.seg button:has-text("Room")'); pg.wait_for_timeout(1200)
+
+    # 8. Том 4: нет на карте, пока гнездо AUX не переключено на Том 4
+    def pad_names():
+        pg.click('nav button[data-tab="pads"]'); pg.wait_for_timeout(900)
+        return pg.evaluate("[...document.querySelectorAll('.padmap .pad')].map(e => e.dataset.id)")
+    ids = pad_names()
+    check('6' not in ids and '11' in ids, f'карта по умолчанию: {ids}')
+    check(not any(i in ids for i in ('12', '13', '14')), 'AUX 2–4 видны без инженерного режима')
+    pg.click('nav button[data-tab="sys"]'); pg.wait_for_timeout(800)
+    pg.select_option('select[aria-label="Гнездо AUX"]', 'tom4'); pg.wait_for_timeout(500)
+    ids = pad_names()
+    check('6' in ids and '11' not in ids, f'AUX как Том 4: {ids}')
+    pg.click('nav button[data-tab="sys"]'); pg.wait_for_timeout(800)
+    pg.select_option('select[aria-label="Гнездо AUX"]', 'aux'); pg.wait_for_timeout(500)
+    pg.click('nav button[data-tab="trig"]'); pg.wait_for_timeout(900)
+    segs = pg.evaluate("[...document.querySelectorAll('#view > .seg button')].map(b => b.innerText)")
+    check(len(segs) == 11 and not any('Том 4' in x for x in segs), f'входы триггеров: {segs}')
     print('\n'.join(errors) or 'OK: ползунки, фейдеры, эквалайзер, замок, микшер')
     b.close()
 sys.exit(1 if errors else 0)

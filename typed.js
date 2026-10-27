@@ -163,7 +163,8 @@ window.V31TYPED = (function () {
     ],
   };
 
-  const RATIO = '1:1–INF:1';
+  // Список из MIDI Implementation (Pre/Post Comp Ratio Room/Overhead): тот же компрессор Roland
+  const RATIO = '1:1, 2:1, 3:1, 4:1, 8:1, 16:1, 32:1, INF:1';
   const KNEE = 'HARD, SOFT1–3';
   const FET = [
     ['Compression', 'OFF, ON'],
