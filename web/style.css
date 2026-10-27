@@ -187,9 +187,11 @@ input[type=text], input[type=number] {
 .strip.master { border-color: var(--accent); }
 .strip .sn { font-size: 13px; font-weight: 600; text-align: center; min-height: 2.4em; line-height: 1.2; }
 .strip .sv { font-size: 12px; color: var(--accent); min-height: 1.3em; }
-.fader { position: relative; width: 48px; height: 260px; border-radius: 8px; background: #11151a; border: 1px solid var(--line); touch-action: none; }
+.fader { position: relative; width: 48px; height: 260px; border-radius: 8px; background: #11151a; border: 1px solid var(--line); }
 .fader .fill { position: absolute; left: 21px; width: 6px; bottom: 6px; border-radius: 3px; background: var(--accent); opacity: .55; }
-.fader .cap { position: absolute; left: 3px; width: 40px; height: 22px; border-radius: 5px; background: var(--text); box-shadow: 0 2px 0 #000; }
+.fader .cap { position: absolute; left: 3px; width: 40px; height: 22px; border-radius: 5px; background: var(--text); box-shadow: 0 2px 0 #000; touch-action: none; cursor: grab; }
+.fader .cap::before { content: ''; position: absolute; inset: -12px -6px; } /* увеличенная зона захвата */
+.fader .cap.drag { background: var(--accent); cursor: grabbing; }
 .fader .cap::after { content: ''; position: absolute; left: 6px; right: 6px; top: 10px; height: 2px; background: var(--bg); }
 .fader .zero { position: absolute; left: 0; right: 0; height: 1px; background: var(--muted); opacity: .6; }
 .pan { width: 74px; }
@@ -247,3 +249,66 @@ input[type=text], input[type=number] {
 .layer .row:has(> .toggle) { grid-template-columns: 1fr auto auto; }
 .layer .row > .toggle { grid-column: auto; grid-row: auto; justify-self: end; }
 .row > .seg { justify-self: start; }
+
+/* ---------- ползунок: только за ручку ---------- */
+.sl { position: relative; height: var(--tap); flex: 1; min-width: 80px; --p: 0; }
+.sl-track { position: absolute; left: 14px; right: 14px; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; background: var(--line); pointer-events: none; }
+.sl-fill { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .55; border-radius: 3px; }
+.sl-thumb {
+  position: absolute; top: 50%; width: 28px; height: 28px; margin-top: -14px; border-radius: 50%;
+  left: calc(var(--p) * (100% - 28px)); background: var(--text); border: 3px solid var(--accent);
+  touch-action: pan-y; cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+.sl-thumb::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; } /* зона захвата побольше */
+.sl-thumb.drag { background: var(--accent); cursor: grabbing; transform: scale(1.12); }
+.val.tap { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.small-dialog { width: min(380px, 100%); }
+.small-dialog input { font-size: 22px; flex: 1; }
+.strip .pan.sl { width: 74px; flex: none; min-width: 0; }
+.sn-btn { border: 0; background: none; padding: 0; color: var(--text); }
+.sn-btn:disabled { opacity: 1; cursor: default; }
+.sn-btn .chev { color: var(--accent); }
+.strip-group { display: flex; gap: 4px; flex: none; }
+.strip-group.open { background: var(--panel-2); border-radius: 12px; box-shadow: 0 0 0 3px var(--panel-2); }
+.strip.zone { flex-basis: 66px; background: var(--bg); }
+
+/* ---------- замок ---------- */
+.lockbtn { position: relative; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
+.lock-ico { width: 14px; height: 12px; border: 2px solid currentColor; border-radius: 2px; position: relative; margin-top: 5px; }
+.lock-ico::before { content: ''; position: absolute; left: 1px; top: -9px; width: 8px; height: 8px; border: 2px solid currentColor; border-bottom: 0; border-radius: 6px 6px 0 0; transform-origin: right bottom; transform: rotate(25deg); }
+.lockbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.lockbtn.on .lock-ico::before { transform: none; }
+.lock-ring { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--accent-ink); }
+.lockbtn.holding .lock-ring { width: 100%; transition: width 1s linear; }
+body.locked nav.rail button:disabled { opacity: .3; }
+@media (max-width: 760px) { .lockbtn .lt { display: none; } }
+
+/* ---------- графический эквалайзер ---------- */
+.eq-graph { max-width: 980px; background: #0d1013; border: 1px solid var(--line); border-radius: var(--radius); margin: 8px 0; overflow: hidden; }
+.eq-svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.eq-grid line { stroke: #252c34; stroke-width: 1; }
+.eq-grid line.zero { stroke: #4a5560; }
+.eq-grid text { fill: var(--muted); font-size: 18px; }
+.eq-curve { fill: none; stroke: var(--text); stroke-width: 3.5; }
+.eq-ghost { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 6; opacity: .7; }
+.eq-band { opacity: .22; stroke: none; }
+.eq-svg.off .eq-curve { stroke: var(--muted); stroke-dasharray: 10 8; }
+.eq-h { cursor: grab; touch-action: none; }
+.eq-h .hit { fill: transparent; }
+.eq-h circle:not(.hit) { stroke: #0d1013; stroke-width: 3; }
+.eq-h.sel circle:not(.hit) { stroke: var(--text); stroke-width: 4; }
+.eq-h.off circle:not(.hit) { fill-opacity: .25; }
+.eq-h text { fill: #0d1013; font-size: 19px; font-weight: 700; pointer-events: none; }
+.eq-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.eq-tab { border: 1px solid var(--line); background: var(--panel-2); border-radius: 18px; min-height: 36px; padding: 0 14px; color: var(--muted); }
+.eq-tab::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 7px; }
+.eq-tab.on { color: var(--text); border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); }
+
+@media (min-width: 900px) {
+  .eq { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); gap: 0 18px; align-items: start; }
+  .eq > .eq-head, .eq > .eq-graph, .eq > p { grid-column: 1; }
+  .eq > .eq-tabs, .eq > .eq-panel, .eq > div:not([class]) { grid-column: 2; }
+  .eq > .eq-tabs { grid-row: 1; align-self: end; }
+  .eq > .eq-panel { grid-row: 2; }
+  .eq .eq-panel .row, .eq > div:not([class]) .row { grid-template-columns: 70px 1fr auto; }
+}

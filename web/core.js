@@ -539,6 +539,12 @@
         if (p.name === 'Instrument') v = 1;
         if (/Kit Tempo$/.test(p.name)) v = 1200;
         if (p.name === 'Sensitivity') v = 20;
+        // эквалайзеры: полосы на разных частотах, чтобы демо выглядело как на модуле
+        if (/Freq$/.test(p.name) && p.fmt && p.fmt.t === 'enum') {
+          const want = /Low/.test(p.name) ? '100' : /Mid 2|Mid2/.test(p.name) ? '2k' : /Mid/.test(p.name) ? (/Mid 1|Mid1/.test(p.name) ? '400' : '1k') : /High/.test(p.name) ? '8k' : null;
+          if (want) { const i = p.fmt.items.findIndex((x) => x.replace(/Hz|\(Hz\)/, '') === want || x.replace(/Hz/, '') === want); if (i >= 0) v = p.min + i; }
+        }
+        if (/ Q$|^Q$|LowQ$|HighQ$/.test(p.name) && p.fmt && p.fmt.t === 'enum') v = p.min + 1;
         const enc = encode(p, v);
         for (let i = 0; i < enc.length; i++) ram.set(base + p.off + i, enc[i]);
       }
